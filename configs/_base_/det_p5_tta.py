@@ -11,7 +11,7 @@ tta_model = dict(
     type='mmdet.DetTTAModel',
     tta_cfg=dict(nms=dict(type='nms', iou_threshold=0.65), max_per_img=300))
 
-img_scales = [(640, 640), (320, 320), (960, 960)]
+img_scales = [(640, 640),(960, 960)]
 
 #                                LoadImageFromFile
 #                     /                 |                     \

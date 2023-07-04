@@ -216,6 +216,8 @@ class YOLOv8CSPDarknet(BaseBackbone):
                  widen_factor: float = 1.0,
                  input_channels: int = 3,
                  out_indices: Tuple[int] = (2, 3, 4),
+############################增加一个输出通道##############################
+                #  out_indices: Tuple[int] = (1,2, 3, 4),
                  frozen_stages: int = -1,
                  norm_cfg: ConfigType = dict(
                      type='BN', momentum=0.03, eps=0.001),

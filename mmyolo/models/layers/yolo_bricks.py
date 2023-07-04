@@ -1,9 +1,12 @@
 # Copyright (c) OpenMMLab. All rights reserved.
 from typing import Optional, Sequence, Tuple, Union
+import warnings
+
 
 import numpy as np
 import torch
 import torch.nn as nn
+
 from mmcv.cnn import (ConvModule, DepthwiseSeparableConvModule, MaxPool2d,
                       build_norm_layer)
 from mmdet.models.layers.csp_layer import \
@@ -14,6 +17,12 @@ from mmengine.utils import digit_version
 from torch import Tensor
 
 from mmyolo.registry import MODELS
+
+import torch.nn.functional as F
+from mmengine.model import constant_init
+from mmengine.utils.dl_utils.parrots_wrapper import _BatchNorm, _InstanceNorm
+from mmcv.cnn.bricks.activation import build_activation_layer
+from mmcv.cnn.bricks.norm import build_norm_layer
 
 if digit_version(torch.__version__) >= digit_version('1.7.0'):
     MODELS.register_module(module=nn.SiLU, name='SiLU')
@@ -1416,26 +1425,65 @@ class DarknetBottleneck(MMDET_DarknetBottleneck):
         hidden_channels = int(out_channels * expansion)
         conv = DepthwiseSeparableConvModule if use_depthwise else ConvModule
         assert isinstance(kernel_size, Sequence) and len(kernel_size) == 2
+##########################动态卷积#####################################################
+        # if(add_identity==False):
+        #     ######################################################
+        #     from mmyolo.models.necks.yolov5_pafpn import Dynamic_conv2d
+        #     self.conv1 = Dynamic_conv2d(
+        #         in_channels,
+        #         hidden_channels,
+        #         kernel_size[0],
+        #         padding=padding[0],
+        #         )
+        #     self.conv2 = Dynamic_conv2d(
+        #         hidden_channels,
+        #         out_channels,
+        #         kernel_size[1],
+        #         stride=1,
+        #         padding=padding[1],
+        #         )
+
+        # else:
+        #     self.conv1 = ConvModule(
+        #         in_channels,
+        #         hidden_channels,
+        #         kernel_size[0],
+        #         padding=padding[0],
+        #         conv_cfg=conv_cfg,
+        #         norm_cfg=norm_cfg,
+        #         act_cfg=act_cfg)
+        #     self.conv2 = conv(
+        #         hidden_channels,
+        #         out_channels,
+        #         kernel_size[1],
+        #         stride=1,
+        #         padding=padding[1],
+        #         conv_cfg=conv_cfg,
+        #         norm_cfg=norm_cfg,
+        #         act_cfg=act_cfg)
+        #     self.add_identity = \
+        #         add_identity and in_channels == out_channels
 
         self.conv1 = ConvModule(
-            in_channels,
-            hidden_channels,
-            kernel_size[0],
-            padding=padding[0],
-            conv_cfg=conv_cfg,
-            norm_cfg=norm_cfg,
-            act_cfg=act_cfg)
+                in_channels,
+                hidden_channels,
+                kernel_size[0],
+                padding=padding[0],
+                conv_cfg=conv_cfg,
+                norm_cfg=norm_cfg,
+                act_cfg=act_cfg)
         self.conv2 = conv(
-            hidden_channels,
-            out_channels,
-            kernel_size[1],
-            stride=1,
-            padding=padding[1],
-            conv_cfg=conv_cfg,
-            norm_cfg=norm_cfg,
-            act_cfg=act_cfg)
+                hidden_channels,
+                out_channels,
+                kernel_size[1],
+                stride=1,
+                padding=padding[1],
+                conv_cfg=conv_cfg,
+                norm_cfg=norm_cfg,
+                act_cfg=act_cfg)
         self.add_identity = \
-            add_identity and in_channels == out_channels
+                add_identity and in_channels == out_channels
+
 
 
 class CSPLayerWithTwoConv(BaseModule):

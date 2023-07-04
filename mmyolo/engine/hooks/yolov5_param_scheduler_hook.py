@@ -8,7 +8,6 @@ from mmengine.runner import Runner
 
 from mmyolo.registry import HOOKS
 
-
 def linear_fn(lr_factor: float, max_epochs: int):
     """Generate linear function."""
     return lambda x: (1 - x / max_epochs) * (1.0 - lr_factor) + lr_factor

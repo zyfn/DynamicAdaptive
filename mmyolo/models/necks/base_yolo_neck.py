@@ -9,6 +9,7 @@ from mmengine.model import BaseModule
 from torch.nn.modules.batchnorm import _BatchNorm
 
 from mmyolo.registry import MODELS
+from mmyolo.models.plugins.cbam import CBAM
 
 
 @MODELS.register_module()
@@ -153,26 +154,34 @@ class BaseYOLONeck(BaseModule, metaclass=ABCMeta):
         self.act_cfg = act_cfg
 
         self.reduce_layers = nn.ModuleList()
-        for idx in range(len(in_channels)):
-            self.reduce_layers.append(self.build_reduce_layer(idx))
+        for idx in range(len(in_channels)):                                 #0表示低层，检测小目标；2表示高层，检测大目标
+            self.reduce_layers.append(self.build_reduce_layer(idx))         #构建identity:0,1,2
 
         # build top-down blocks
         self.upsample_layers = nn.ModuleList()
         self.top_down_layers = nn.ModuleList()
-        for idx in range(len(in_channels) - 1, 0, -1):
-            self.upsample_layers.append(self.build_upsample_layer(idx))
-            self.top_down_layers.append(self.build_top_down_layer(idx))
+        for idx in range(len(in_channels) - 1, 0, -1):                    # 2,1
+            self.upsample_layers.append(self.build_upsample_layer(idx))   # 上采样：2，1
+            self.top_down_layers.append(self.build_top_down_layer(idx))   # 上层上采样后和下层cat然后做卷积：2，1
 
         # build bottom-up blocks
         self.downsample_layers = nn.ModuleList()
         self.bottom_up_layers = nn.ModuleList()
-        for idx in range(len(in_channels) - 1):
-            self.downsample_layers.append(self.build_downsample_layer(idx))
-            self.bottom_up_layers.append(self.build_bottom_up_layer(idx))
+        for idx in range(len(in_channels) - 1):                              # 0,1
+            self.downsample_layers.append(self.build_downsample_layer(idx))  # 下采样：0，1                       
+            self.bottom_up_layers.append(self.build_bottom_up_layer(idx))    # 下层下采样后和上层cat然后做卷积：0，1
 
         self.out_layers = nn.ModuleList()
-        for idx in range(len(in_channels)):
-            self.out_layers.append(self.build_out_layer(idx))
+        for idx in range(len(in_channels)):                                  # 0，1，2
+            self.out_layers.append(self.build_out_layer(idx))                # neck输出层,构建identity:0,1,2
+##################################################   
+        # self.spp_attention = nn.ModuleList()
+        # for idx in range(2):   
+        #     self.spp_attention.append(self.build_spp_attention(idx))
+
+##################CBAM#############################
+        # self.cbam = nn.ModuleList()
+        # self.cbam.append(CBAM(self.in_channels[0]))
 
     @abstractmethod
     def build_reduce_layer(self, idx: int):
@@ -203,6 +212,12 @@ class BaseYOLONeck(BaseModule, metaclass=ABCMeta):
     def build_out_layer(self, idx: int):
         """build out layer."""
         pass
+######################SPPAttention####################    
+    # @abstractmethod
+    # def build_spp_attention(self,idx:int):
+    #     """build SPPAttention."""
+    #     pass
+
 
     def _freeze_all(self):
         """Freeze the model."""
@@ -225,11 +240,10 @@ class BaseYOLONeck(BaseModule, metaclass=ABCMeta):
         # reduce layers
         reduce_outs = []
         for idx in range(len(self.in_channels)):
-            reduce_outs.append(self.reduce_layers[idx](inputs[idx]))
-
+            reduce_outs.append(self.reduce_layers[idx](inputs[idx]))  # reduce_outs: 长度为3，分别对应p3,p4,p5层
         # top-down path
-        inner_outs = [reduce_outs[-1]]
-        for idx in range(len(self.in_channels) - 1, 0, -1):
+        inner_outs = [reduce_outs[-1]]  #对应p5层
+        for idx in range(len(self.in_channels) - 1, 0, -1): # idx：2，1
             feat_high = inner_outs[0]
             feat_low = reduce_outs[idx - 1]
             upsample_feat = self.upsample_layers[len(self.in_channels) - 1 -
@@ -241,21 +255,28 @@ class BaseYOLONeck(BaseModule, metaclass=ABCMeta):
                 top_down_layer_inputs = torch.cat([feat_low, upsample_feat], 1)
             inner_out = self.top_down_layers[len(self.in_channels) - 1 - idx](
                 top_down_layer_inputs)
-            inner_outs.insert(0, inner_out)
+            inner_outs.insert(0, inner_out)           ######### 对应top_down layer1的输出、top_down layer2的输出、p5层
 
         # bottom-up path
         outs = [inner_outs[0]]
-        for idx in range(len(self.in_channels) - 1):
+        for idx in range(len(self.in_channels) - 1): # idx: 0,1
             feat_low = outs[-1]
             feat_high = inner_outs[idx + 1]
             downsample_feat = self.downsample_layers[idx](feat_low)
             out = self.bottom_up_layers[idx](
                 torch.cat([downsample_feat, feat_high], 1))
-            outs.append(out)
+            outs.append(out)                         ######### 对应top_down layer1的输出、bottom_up layer0的输出、bottom_up layer1的输出
 
         # out_layers
         results = []
         for idx in range(len(self.in_channels)):
             results.append(self.out_layers[idx](outs[idx]))
 
+        ####################在低层加入SPPAttention##################
+        # results[0]=self.spp_attention[0](results[0])
+        # results[1]=self.spp_attention[1](results[1])
+
+        ####################在低层加入CBAM##################
+        # results[0]=self.cbam[0](results[0])
+        
         return tuple(results)

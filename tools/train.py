@@ -10,7 +10,7 @@ from mmengine.runner import Runner
 
 from mmyolo.registry import RUNNERS
 from mmyolo.utils import is_metainfo_lower
-
+# from mmyolo.engine.hooks.set_epoch_info_hook import SetEpochInfoHook
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Train a detector')
@@ -106,6 +106,8 @@ def main():
         # build customized runner from the registry
         # if 'runner_type' is set in the cfg
         runner = RUNNERS.build(cfg)
+
+    # runner.register_hook(SetEpochInfoHook())
 
     # start training
     runner.train()
