@@ -193,24 +193,15 @@ class SPPAttention(nn.Module):
         self.m = nn.ModuleList([nn.MaxPool2d(kernel_size=x, stride=1, padding=x // 2) for x in k])
         ##############Attention################
         self.gap=torch.nn.AdaptiveAvgPool2d(1)
-        # self.mlp=nn.Sequential(
-        #     nn.Linear(c1, c1 * reduction, bias=False),         # 将/改为了*
-        #     nn.ReLU(inplace=True),
-        #     nn.Linear(c1 * reduction, c1, bias=False),         # 将/改为了*
-        #     nn.Sigmoid()
-        # )
         self.eca=eca_layer(c1)
         self.att=self_Attn(c1)
     def forward(self, x):
-        x = self.cv1(x)
         b, c, h, w = x.size()
         with warnings.catch_warnings():
             warnings.simplefilter('ignore')  # suppress torch 1.9.0 max_pool2d() warning
             max_pool=[m(x) for m in self.m]
             max_pool_cat=torch.cat([max_pool[i] for i,val in enumerate(max_pool)], 1)
             out_feature_selector = self.dyConv(max_pool_cat)
-            # gap=[self.gap(x).view(b,c,h,w) for x in max_pool]
-            # att=[self.mlp(y).view(b,c,1,1) for y in gap]
             gap=self.gap(out_feature_selector).view(b,c,h,w)
             att_adaptive=self.eca(gap)
             att_self=self.mlp(out_feature_selector).view(b,c,1,1)
@@ -227,20 +218,41 @@ class eca_layer(nn.Module):
     def __init__(self, channel, k_size=3):
         super(eca_layer, self).__init__()
         self.avg_pool = nn.AdaptiveAvgPool2d(1)
+        self.max_pool = nn.AdaptiveMaxPool2d(1)
         self.conv = nn.Conv1d(1, 1, kernel_size=k_size, padding=(k_size - 1) // 2, bias=False) 
         self.sigmoid = nn.Sigmoid()
 
     def forward(self, x):
         # feature descriptor on the global spatial information
-        y = self.avg_pool(x)
-
+        y_avg = self.avg_pool(x)
+        y_max = self.max_pool(x)
         # Two different branches of ECA module
-        y = self.conv(y.squeeze(-1).transpose(-1, -2)).transpose(-1, -2).unsqueeze(-1)
+        y_avg = self.conv(y_avg.squeeze(-1).transpose(-1, -2)).transpose(-1, -2).unsqueeze(-1)
+        y_max = self.conv(y_max.squeeze(-1).transpose(-1, -2)).transpose(-1, -2).unsqueeze(-1)
 
+        y=y_avg+y_max
         # Multi-scale information fusion
         y = self.sigmoid(y)
 
         return x * y.expand_as(x)
+
+###########################################spatialAttention################################################################https://blog.csdn.net/lzzzzzzm/article/details/123558175
+class SpatialAttention(nn.Module):
+    def __init__(self):
+        super(SpatialAttention, self).__init__()
+        self.conv1 = nn.Conv2d(in_channels=2, out_channels=1, kernel_size=7, padding=7 // 2, bias=False)
+        self.sigmoid = nn.Sigmoid()
+    def forward(self, x):
+        # 压缩通道提取空间信息
+        max_out, _ = torch.max(x, dim=1, keepdim=True)
+        avg_out = torch.mean(x, dim=1, keepdim=True)
+        # 经过卷积提取空间注意力权重
+        x = torch.cat([max_out, avg_out], dim=1)
+        out = self.conv1(x)
+        # 输出非负
+        out = self.sigmoid(out)
+        return out
+
 
 ###########################################self-attention################################################################https://zhuanlan.zhihu.com/p/283125663
 class self_Attn(nn.Module):
